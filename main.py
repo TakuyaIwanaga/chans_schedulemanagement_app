@@ -1,9 +1,12 @@
-#ルート検索の実装
-#import streamlit as st
+#----------------
+#ルート提案の実装
+#----------------
+import streamlit as st
 import googlemaps
 import requests
 import json
-from datetime import datetime
+import folium
+from streamlit_folium import st_folium
 #環境変数ファイル呼び出し
 import os
 from dotenv import load_dotenv
@@ -11,158 +14,139 @@ from dotenv import load_dotenv
 #環境変数呼び出し
 load_dotenv('.env') 
 
-# APIキーを環境変数ファイルに設定（自分のキーを環境ファイルに入力）
+# GeocodingのAPIキー
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY")
 gmaps = googlemaps.Client(key=GOOGLE_API_KEY)
-ROUTE_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
+# NAVITIMEのAPIキー
+NAVITIME_API_KEY = os.environ.get("NAVITIME_API_KEY")
 
-# Streamlit タイトル
-# st.title("🧑‍💼優秀な営業マンのための秘書アプリ👩‍💼")
 
-# 出発地と到着地の入力
-origin_address = "羽田空港"
-destination_address = "東京駅"
+#入力変数 ※フロントエンド実装の際は以下を取得-----------------
+# 出発地と到着地の入力（駅名）
+start_address = "浜松町駅"
+goal_address = "新宿駅"
 
-#出発時間の入力
-dt = datetime.strptime("2025-3-21-10:00:00", "%Y-%m-%d-%H:%M:%S")
-start_time = dt.isoformat() + "Z"
+#出発時間の入力（文字列（日付時刻）YYYY-MM-DDThh:mm:s）
+start_time = "2025-03-21T10:00:00"
+goal_time = ""
 
+#検索優先順位のオーダー（以下から選択）
+order = "time_optimized"
+
+#     "time_optimized"        #時刻順
+#     "total_distance"        #総移動距離
+#     "walk_distance"         #総徒歩移動距離
+#     "fare"                  #料金
+#     "time"                  #所要時間
+#     "transit"               #乗換回数
+#     "commuter_pass_price"   #定期券運賃
+#     "co2"                   #二酸化炭素排出量"
+
+
+
+#------------------------------------------------------
+
+
+#経度・緯度取得_geo coding--------------
 #住所を経度、緯度に変換する関数（geocording）
-def get_lat_lng(address):
+def get_lat_lon(address):
     result = gmaps.geocode(address, language="ja")
     if result:
         lat = result[0]["geometry"]["location"]["lat"]
-        lng = result[0]["geometry"]["location"]["lng"]
-        return lat, lng
+        lon = result[0]["geometry"]["location"]["lng"]
+        return lat, lon
     else:
         return None, None
 
-#出発地と到着地の経度・緯度を取得
-try:
-    origin_lat, origin_lng = get_lat_lng(origin_address)
-    destination_lat, destination_lng = get_lat_lng(destination_address)
+#出発地と到着地の経度・緯度を取得してrootのパラメータ用変数へ代入
+start_lat, start_lon = get_lat_lon(start_address)
+goal_lat, goal_lon = get_lat_lon(goal_address)
 
-    if origin_lat is None or destination_lat is None:
-        print("住所を正しく認識できませんでした。英語表記で入力してください。")
-        exit()
-
-    print(f"出発地: {origin_address} → 緯度 {origin_lat}, 経度 {origin_lng}")
-    print(f"到着地: {destination_address} → 緯度 {destination_lat}, 経度 {destination_lng}")
-
-except Exception as e:
-    print(f"エラー発生: {e}")
+#入力内容不備の場合にエラーで返す。
+if start_lat is None or goal_lat is None:
+    print("住所認識エラー")
     exit()
 
-# 検索ボタン
-# if st.button("ルートを検索"):
-#     if not GOOGLE_API_KEY:
-#         st.error("APIキーが設定されていません。")
-#     else:
+#経度緯度取得確認用--------------------------------------------------
+# print(f"出発地: {start_address} 緯度 {start_lat}, 経度 {start_lon}")
+# print(f"到着地: {goal_address} 緯度 {goal_lat}, 経度 {goal_lon}")
+#-----------------------------------------------------------------
 
-# ヘッダーx-goog-FieldMask情報により取得するパラメータを指定
+#ルート取得---------------------------------------------------------
+
+#NAVITIMEのエンドポイント指定
+root_url = "https://navitime-route-totalnavi.p.rapidapi.com/route_transit"
+
+# ヘッダー情報 x-RapidAPI情報から取得
 headers = {
-#出力形式はjsonで取得
-    "Content-Type": "application/json",
-    "X-Goog-Api-Key": GOOGLE_API_KEY,
-#ここが取得したい情報の指定
-    "X-Goog-FieldMask": "routes.legs.steps.transitDetails,routes.legs.steps.travelMode,routes.travelAdvisory.transitFare"
+    "X-RapidAPI-Key": NAVITIME_API_KEY,
+    "X-RapidAPI-Host": "navitime-route-totalnavi.p.rapidapi.com"
 }
-
-#ヘッダー情報に応じたパラメータを設定
+#ルート検索のパラメータを設定
 params = {
-    "origin": {"location": {"latLng": {"latitude": origin_lat, "longitude": origin_lng}}},
-    "destination": {"location": {"latLng": {"latitude": destination_lat, "longitude": destination_lng}}},
-    "travelMode": "TRANSIT",
-    "arrivalTime": start_time,
-    "computeAlternativeRoutes": True,
-    "transitPreferences": {
-    "allowedTravelModes": ["SUBWAY"],
-    "routingPreference": "FEWER_TRANSFERS"
-    },
+    "start": f"{start_lat},{start_lon}",
+    "goal": f"{goal_lat},{goal_lon}",
+    # "start_time": start_time,
+    # "goal_time": goal_time,
+    "coord_unit": "degree",
+    "datum": "wgs84",
+    "order": order,
+    "term": "1440",
+    "limit": "5",
+    "shape": "true",
 }
+#start_timeまたはgoal_timeどちらかが入力されている場合paramsに入力
+if start_time:
+    params["start_time"] = start_time
+if goal_time:
+    params["goal_time"] = goal_time
+
+#------------------------------------------
 
 #結果をレスポンスに代入
-response = requests.post(ROUTE_URL, headers=headers, json=params)
+response = requests.get(root_url, headers=headers, params=params)
 
-# APIレスポンスのJSONデータを取得
-response_json = response.json()  # 実際のAPIレスポンスを使用
+# APIレスポンス確認用----------------------------
+# print(f"Request URL: {response.url}")
+# print(f"Status Code: {response.status_code}")
+# print(f"Response Headers: {response.headers}")
+#---------------------------------------------
 
-# ルート候補を3つ取得
-routes = response_json.get("routes", [])[:3]
-
-if not routes:
-    print("ルートが見つかりませんでした。")
+#APIレスポンスの結果がNGの場合、エラー出力----------
+if response.status_code != 200:
+    print(f"エラー: APIリクエストが失敗しました (ステータスコード: {response.status_code})")
+    print("レスポンス内容:", response.text)
     exit()
 
-# ルートを3つ選んで情報を取得して表示（繰り返し処理）
-for i, route in enumerate(routes):
-    print(f"ルート候補 {i+1}")
+try:
+    response_json = response.json()
+    print("APIレスポンス成功")
+except requests.exceptions.JSONDecodeError:
+    print("エラー: JSONデータをデコードできません。")
+    print("レスポンス内容:", response.text)
+    exit()
 
-    leg = route.get("legs", [])[0]  # 各ルートの詳細情報
-    steps = leg.get("steps", [])
+# 確認用にJSONを保存
+# with open("result.json", "w", encoding="utf-8") as f:
+#     json.dump(response_json, f, indent=4, ensure_ascii=False)
 
-    # transitDetails を持つステップのみ抽出
-    transit_steps = [step for step in steps if "transitDetails" in step]
+# print("ルート検索結果から出力")
+shapes = response_json["items"][0]["shapes"]
 
-    if not transit_steps:
-        print("このルートに公共交通機関の情報がありません。")
-        continue
+#地図の生成
+point_geojson = shapes
+folium_map = folium.Map(location=[35.690921, 139.700258], zoom_start=15)
+st.title("地図")
 
-    # 出発時間・到着時間の取得
-    departure_time_str = transit_steps[0]["transitDetails"]["stopDetails"]["departureTime"]
-    arrival_time_str = transit_steps[-1]["transitDetails"]["stopDetails"]["arrivalTime"]
+#地図表示
+st_folium(folium_map)
 
-    # 出発地・到着地の取得
-    departure_location = transit_steps[0]["transitDetails"]["stopDetails"]["departureStop"]["name"]
-    arrival_location = transit_steps[-1]["transitDetails"]["stopDetails"]["arrivalStop"]["name"]
-
-    # 日付・時刻の整形
-    departure_time = datetime.fromisoformat(departure_time_str.replace("Z", "+00:00"))
-    arrival_time = datetime.fromisoformat(arrival_time_str.replace("Z", "+00:00"))
-
-    date = departure_time.strftime("%Y-%m-%d")
-    departure_time_formatted = departure_time.strftime("%H:%M")
-    arrival_time_formatted = arrival_time.strftime("%H:%M")
-
-    # 所要時間の計算
-    duration = arrival_time - departure_time
-    duration_str = str(duration)
-
-    # 経由地の取得（途中の駅をリスト化）
-    waypoints = [step["transitDetails"]["stopDetails"]["arrivalStop"]["name"] for step in transit_steps[:-1]]
-
-    # 費用（存在する場合のみ取得）
-    fare_info = route.get("travelAdvisory", {}).get("transitFare", {})
-    fare = fare_info.get("amount", "不明")
-    currency = fare_info.get("currencyCode", "")
-
-    # 出力
-    print(f"日付: {date}")
-    print(f"出発時刻: {departure_time_formatted}")
-    print(f"出発地: {departure_location}")
-    print(f"経由地: {', '.join(waypoints) if waypoints else 'なし'}")
-    print(f"到着地: {arrival_location}")
-    print(f"所要時間: {duration_str}")
-    print(f"費用: {fare} {currency}")
-
-# JSONを保存
-with open("result.json", "w", encoding="utf-8") as f:
-    json.dump(response_json, f, indent=4, ensure_ascii=False)
-
-print("ルート検索完了！")
-
-
-    #Streamlitで表示
-    # st.write("おすすめルートはこちら！")
-    # st.info(response_json)  # JSONを整形表示
-#レスポンスが200番以外の場合はエラー結果表示
-
-# else:
-#         st.write(f"APIリクエスト失敗: {response.status_code}")
-#         st.text(response.text)  # エラー内容を表示
-
-
-
+#------------------
 #天気予報実装
+#------------------
 
+
+#------------------
 #コンセント場所検索実装
+#------------------
+
