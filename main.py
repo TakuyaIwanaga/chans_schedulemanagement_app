@@ -1,12 +1,12 @@
 #----------------
 #ルート提案の実装
 #----------------
-import streamlit as st
+#import streamlit as st
 import googlemaps
 import requests
 import json
-import folium
-from streamlit_folium import st_folium
+#import folium
+#from streamlit_folium import st_folium
 #環境変数ファイル呼び出し
 import os
 from dotenv import load_dotenv
@@ -23,8 +23,8 @@ NAVITIME_API_KEY = os.environ.get("NAVITIME_API_KEY")
 
 #入力変数 ※フロントエンド実装の際は以下を取得-----------------
 # 出発地と到着地の入力（駅名）
-start_address = "浜松町駅"
-goal_address = "新宿駅"
+start_address = "浜松町"
+goal_address = "新宿"
 
 #出発時間の入力（文字列（日付時刻）YYYY-MM-DDThh:mm:s）
 start_time = "2025-03-21T10:00:00"
@@ -112,34 +112,97 @@ response = requests.get(root_url, headers=headers, params=params)
 # print(f"Response Headers: {response.headers}")
 #---------------------------------------------
 
-#APIレスポンスの結果がNGの場合、エラー出力----------
+#APIレスポンスの結果がNGの場合、エラー出力の確認用----------------------------------------------
 if response.status_code != 200:
     print(f"エラー: APIリクエストが失敗しました (ステータスコード: {response.status_code})")
     print("レスポンス内容:", response.text)
     exit()
-
+    
 try:
-    response_json = response.json()
-    print("APIレスポンス成功")
+        response_json = response.json()
+        print("APIレスポンス成功")
 except requests.exceptions.JSONDecodeError:
     print("エラー: JSONデータをデコードできません。")
     print("レスポンス内容:", response.text)
     exit()
+#---------------------------------------------------------------------------------------
 
-# 確認用にJSONを保存
+#jsonの結果から必要な項目のResponseを5つ取り出す関数
+def extract_route_info(response_json, top_n=5):
+    routes = response_json.get("items", [])[:top_n]
+    extracted_routes = []
+
+    for route in routes:
+        sections = route.get("sections", [])
+        stations = [s for s in sections if s.get("type") == "point" and "station" in s.get("node_types", [])]
+
+        if not stations:
+            print("データがありません")
+            continue
+
+        # 出発時間と到着時間
+        start_time = (route.get("summary", {}).get("move", {}).get("from_time", ""))
+        goal_time = (route.get("summary", {}).get("move", {}).get("to_time", ""))
+
+        # 出発駅・到着駅を取得
+        start_station = stations[0].get("name", "")
+        goal_station = stations[-1].get("name", "")
+
+        # 乗換駅の取得
+        transfer_stations = [s.get("name", "") for s in stations[1:-1]]
+
+        # 所要時間（分）
+        duration = route.get("summary", {}).get("move", {}).get("time", "")
+
+        # 費用（円）
+        fare = route.get("summary", {}).get("move", {}).get("fare", {}).get("unit_0", "")
+
+        extracted_routes.append({
+            "出発時刻": start_time,
+            "到着時刻": goal_time,
+            "出発駅": start_station,
+            "到着駅": goal_station,
+            "乗換駅": transfer_stations,
+            "所要時間": duration,
+            "費用": fare
+        })
+    
+    return extracted_routes
+
+best_routes = extract_route_info(response_json)
+
+# ルート情報を出力
+if best_routes:
+    for i, route in enumerate(best_routes, 1):
+        print(f"ルート {i}:")
+        print(f"  出発時刻: {route['出発時刻']}")
+        print(f"  到着時刻: {route['到着時刻']}")
+        print(f"  出発駅: {route['出発駅']}")
+        print(f"  到着駅: {route['到着駅']}")
+        print(f"  乗換駅: {', '.join(route['乗換駅']) if route['乗換駅'] else 'なし'}")
+        print(f"  所要時間: {route['所要時間']} 分")
+        print(f"  費用: {route['費用']} 円")
+        print("-" * 30)
+else:
+    print("ルートが取得できませんでした。")
+
+
+#出力確認用にJSONを保存
 # with open("result.json", "w", encoding="utf-8") as f:
 #     json.dump(response_json, f, indent=4, ensure_ascii=False)
 
-# print("ルート検索結果から出力")
-shapes = response_json["items"][0]["shapes"]
+#地図への作図 Streamlit----------------------------------------------------------------
+# shapes = response_json["items"][0]["shapes"]
 
-#地図の生成
-point_geojson = shapes
-folium_map = folium.Map(location=[35.690921, 139.700258], zoom_start=15)
-st.title("地図")
+# #地図の生成
+# point_geojson = shapes
+# folium_map = folium.Map(location=[35.690921, 139.700258], zoom_start=15)
+# st.title("地図")
 
-#地図表示
-st_folium(folium_map)
+# #地図表示
+# st_folium(folium_map)
+
+#------------------------------------------------------------------------------------
 
 #------------------
 #天気予報実装
