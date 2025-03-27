@@ -4,7 +4,6 @@ requests
 openai
 folium
 streamlit_folium
-database
 pandas
 plotly.express
 csv
