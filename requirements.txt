@@ -9,3 +9,6 @@ streamlit_folium
 database
 os
 dotenv
+pandas
+plotly.express
+csv
